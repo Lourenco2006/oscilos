@@ -1,0 +1,175 @@
+import { useState, useMemo, useEffect } from "react";
+import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { Slider } from "@/components/ui/slider";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectItem } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+
+// Tipo para preset
+const defaultValues = {
+  waveType: "sine",
+  frequency: 5,
+  amplitude: 1,
+  sampleRate: 100,
+  quantization: 256,
+  timeScale: 1,
+  ampScale: 1,
+};
+
+export default function Oscilloscope() {
+  const [waveType, setWaveType] = useState(defaultValues.waveType);
+  const [frequency, setFrequency] = useState(defaultValues.frequency);
+  const [amplitude, setAmplitude] = useState(defaultValues.amplitude);
+  const [sampleRate, setSampleRate] = useState(defaultValues.sampleRate);
+  const [quantization, setQuantization] = useState(defaultValues.quantization);
+  const [timeScale, setTimeScale] = useState(defaultValues.timeScale);
+  const [ampScale, setAmpScale] = useState(defaultValues.ampScale);
+
+  const [presetName, setPresetName] = useState("");
+  const [presets, setPresets] = useState({});
+
+  const samples = 1000;
+
+  useEffect(() => {
+    const storedPresets = JSON.parse(localStorage.getItem("oscilloscope-presets")) || {};
+    setPresets(storedPresets);
+  }, []);
+
+  const savePreset = () => {
+    if (!presetName) return;
+    const newPresets = {
+      ...presets,
+      [presetName]: { waveType, frequency, amplitude, sampleRate, quantization, timeScale, ampScale },
+    };
+    localStorage.setItem("oscilloscope-presets", JSON.stringify(newPresets));
+    setPresets(newPresets);
+    setPresetName("");
+  };
+
+  const loadPreset = (name) => {
+    const preset = presets[name];
+    if (preset) {
+      setWaveType(preset.waveType);
+      setFrequency(preset.frequency);
+      setAmplitude(preset.amplitude);
+      setSampleRate(preset.sampleRate);
+      setQuantization(preset.quantization);
+      setTimeScale(preset.timeScale);
+      setAmpScale(preset.ampScale);
+    }
+  };
+
+  const deletePreset = (name) => {
+    const newPresets = { ...presets };
+    delete newPresets[name];
+    localStorage.setItem("oscilloscope-presets", JSON.stringify(newPresets));
+    setPresets(newPresets);
+  };
+
+  const resetDefaults = () => {
+    setWaveType(defaultValues.waveType);
+    setFrequency(defaultValues.frequency);
+    setAmplitude(defaultValues.amplitude);
+    setSampleRate(defaultValues.sampleRate);
+    setQuantization(defaultValues.quantization);
+    setTimeScale(defaultValues.timeScale);
+    setAmpScale(defaultValues.ampScale);
+  };
+
+  const generateWave = (t) => {
+    switch (waveType) {
+      case "square":
+        return amplitude * (Math.sin(2 * Math.PI * frequency * t) >= 0 ? 1 : -1);
+      case "triangle":
+        return (2 * amplitude / Math.PI) * Math.asin(Math.sin(2 * Math.PI * frequency * t));
+      case "sawtooth":
+        return (2 * amplitude / Math.PI) * Math.atan(Math.tan(Math.PI * frequency * t));
+      default:
+        return amplitude * Math.sin(2 * Math.PI * frequency * t);
+    }
+  };
+
+  const data = useMemo(() => {
+    return Array.from({ length: samples }, (_, i) => {
+      const t = (i / sampleRate) * timeScale;
+      const rawValue = generateWave(t);
+      const quantizedValue = Math.round((rawValue + 1) * (quantization / 2)) / (quantization / 2) - 1;
+      return { x: t.toFixed(4), y: (quantizedValue * ampScale).toFixed(4) };
+    });
+  }, [waveType, frequency, amplitude, sampleRate, quantization, timeScale, ampScale]);
+
+  const exportCSV = () => {
+    const csv = ["Tempo,Valor", ...data.map(point => `${point.x},${point.y}`)].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "oscilloscope_data.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="x" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="y" stroke="#8884d8" dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Select label="Forma de Onda" value={waveType} onChange={setWaveType}>
+            <SelectItem value="sine">Senoidal</SelectItem>
+            <SelectItem value="square">Quadrada</SelectItem>
+            <SelectItem value="triangle">Triangular</SelectItem>
+            <SelectItem value="sawtooth">Dente de Serra</SelectItem>
+          </Select>
+          <Slider label="Frequência (Hz)" min={1} max={50} value={frequency} onChange={setFrequency} />
+          <Slider label="Amplitude" min={0.1} max={2} step={0.1} value={amplitude} onChange={setAmplitude} />
+          <Slider label="Frequência de amostragem" min={50} max={500} value={sampleRate} onChange={setSampleRate} />
+          <Slider label="Quantização" min={4} max={1024} step={4} value={quantization} onChange={setQuantization} />
+          <Slider label="Escala de tempo" min={0.5} max={2} step={0.1} value={timeScale} onChange={setTimeScale} />
+          <Slider label="Escala de amplitude" min={0.5} max={2} step={0.1} value={ampScale} onChange={setAmpScale} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 items-end">
+          <div className="space-y-2">
+            <Input placeholder="Nome do preset" value={presetName} onChange={(e) => setPresetName(e.target.value)} />
+            <Button onClick={savePreset}>Salvar Preset</Button>
+          </div>
+          <div className="space-y-2">
+            <Select label="Presets" onChange={loadPreset}>
+              {Object.keys(presets).length === 0 && <SelectItem disabled value="">Nenhum preset</SelectItem>}
+              {Object.entries(presets).map(([name]) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-2 text-red-500"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deletePreset(name);
+                    }}
+                  >
+                    ✕
+                  </Button>
+                </SelectItem>
+              ))}
+            </Select>
+            <Button onClick={resetDefaults} variant="outline">Resetar para padrão</Button>
+          </div>
+        </div>
+
+        <Button onClick={exportCSV} variant="secondary">Exportar CSV</Button>
+      </CardContent>
+    </Card>
+  );
+}
